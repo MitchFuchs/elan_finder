@@ -23,18 +23,19 @@ class ElanFinder:
         self.root.configure(background='light grey')
         self.root.title("ELAN finder")
 
-        self.selected_dir = None
-        self._job = None
-
-        self.time_slots = {}
-
-        # self.relevant_tiers = ["Gesture", "Behaviour"]
-        self.all_tiers = []
         self.annotations = {}
+        self.time_slots = {}
+        self.reversed_time_slots = {}
+
+        self.all_tiers = []
         self.annotation_values = []
         self.relevant_annotation_values = []
+        self.meta_tiers = ["Context", "Phases", "Subphases"]
+
         self.vid = None
         self.photo = None
+        self.selected_dir = None
+        self._job = None
 
         # create a label, entrybox and button for 'ELAN folder'
         Label(self.root, text="Choose ELAN folder", background='light grey').grid(row=1, column=1)
@@ -65,6 +66,12 @@ class ElanFinder:
         self.combo_annotation_value.grid(row=10, column=1)
         self.combo_annotation_value.bind("<<ComboboxSelected>>", self.combo_annotation_value_update)
 
+        # create a label and combobox 'filter'
+        Label(text="Filter results", background='light grey').grid(row=11, column=1)
+        self.combo_filter = ttk.Combobox(self.root, textvariable=StringVar(), width=48)
+        self.combo_filter.grid(row=12, column=1)
+        self.combo_filter.bind("<<ComboboxSelected>>", self.combo_filter_update)
+
         # create tree and vertical scrollbar
         self.tree = ttk.Treeview(self.root)
         self.vsb = ttk.Scrollbar(self.root, orient="vertical", command=self.tree.yview)
@@ -94,6 +101,7 @@ class ElanFinder:
         self.root.mainloop()
 
     def load_eaf_lists(self):
+        self.reset_search()
         j = 0
         done_file = 0
 
@@ -120,7 +128,12 @@ class ElanFinder:
                 # time_slots dict
                 for time_order in xmlstr.findall('TIME_ORDER'):
                     for time_slot in time_order.findall('TIME_SLOT'):
-                        self.time_slots[time_slot.attrib['TIME_SLOT_ID']] = time_slot.attrib['TIME_VALUE']
+                        self.time_slots[time_slot.attrib['TIME_SLOT_ID']] = {}
+                        self.time_slots[time_slot.attrib['TIME_SLOT_ID']]['time'] = int(time_slot.attrib['TIME_VALUE'])
+                        # for meta in self.meta_tiers:
+                        #     self.time_slots[time_slot.attrib['TIME_SLOT_ID']][meta.lower()] = ""
+                self.reverse_time_slots()
+                # self.complete_time_slots()
 
                 for tier in xmlstr.findall('TIER'):
 
@@ -135,21 +148,24 @@ class ElanFinder:
                                 for annotation_value in align_annotation.findall('ANNOTATION_VALUE'):
                                     id2 = annotation_value.text
 
+                    if tier.attrib['LINGUISTIC_TYPE_REF'] in self.meta_tiers:
+                        for annotation in tier.findall('ANNOTATION'):
+                            for align_annotation in annotation.findall('ALIGNABLE_ANNOTATION'):
+                                ts_start_meta = self.get_ts_int(align_annotation.attrib['TIME_SLOT_REF1'], 2)
+                                ts_end_meta = self.get_ts_int(align_annotation.attrib['TIME_SLOT_REF2'], 2)
+                                for annotation_value in align_annotation.findall('ANNOTATION_VALUE'):
+                                    for i in range(int(ts_start_meta), int(ts_end_meta) + 1):
+                                        time_slot = "ts" + str(i)
+                                        self.reversed_time_slots[self.time_slots[time_slot]['time']][
+                                            tier.attrib['LINGUISTIC_TYPE_REF'].lower()] = annotation_value.text
+
                     if not tier.attrib['LINGUISTIC_TYPE_REF'] in self.all_tiers:
-                    # print(type(self.all_tiers))
-                    # if not self.keys_exists(self.all_tiers, tier.attrib['LINGUISTIC_TYPE_REF']):
-                        # print(str(True) + ": " + tier.attrib['LINGUISTIC_TYPE_REF'])
                         self.all_tiers.append(tier.attrib['LINGUISTIC_TYPE_REF'])
                         self.relevant_annotation_values.append([])
 
-                    # print("all tier: " + str(self.all_tiers))
-                    # print("relevant annotation values: " + str(self.relevant_annotation_values))
-                    # print(tier.attrib['LINGUISTIC_TYPE_REF'])
                     i = self.all_tiers.index(tier.attrib['LINGUISTIC_TYPE_REF'])
-                    # print(i)
                     if not self.keys_exists(self.annotations, tier.attrib['LINGUISTIC_TYPE_REF']):
                         self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']] = {}
-                    # print(self.annotations)
                     for annotation in tier.findall('ANNOTATION'):
                         for align_annotation in annotation.findall('ALIGNABLE_ANNOTATION'):
                             ts_start, ts_end = self.get_time(align_annotation.attrib['TIME_SLOT_REF1'],
@@ -164,29 +180,65 @@ class ElanFinder:
                                     # print("already added " + tier.attrib['LINGUISTIC_TYPE_REF'] + " " + annotation_value.text)
 
                                 self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)] = {}
+                                new_annot = self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)]
+                                new_annot["file"] = file
+                                try:
+                                    new_annot["video_file"] = video_file
+                                    new_annot["id1"] = id1
+                                    new_annot["id2"] = id2
+                                except:
+                                    pass
 
-                                self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)]["file"] = file
-                                self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
-                                    "video_file"] = video_file
-                                self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
-                                    "id1"] = "" #id1
-                                self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
-                                    "id2"] = "" #id2
+                                new_annot["ts_start"] = align_annotation.attrib['TIME_SLOT_REF1']
+                                new_annot["ts_end"] = align_annotation.attrib['TIME_SLOT_REF2']
+                                new_annot["time_start"] = ts_start
+                                new_annot["time_end"] = ts_end
+                                new_annot["milli_start"] = self.time_slots[align_annotation.attrib['TIME_SLOT_REF1']]['time']
+                                new_annot["milli_end"] = self.time_slots[align_annotation.attrib['TIME_SLOT_REF2']]['time']
 
-                                self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
-                                    "ts_start"] = align_annotation.attrib['TIME_SLOT_REF1']
-                                self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
-                                    "ts_end"] = align_annotation.attrib['TIME_SLOT_REF2']
+                                # self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)] = {}
+                                #
+                                # self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)]["file"] = file
+                                # try:
+                                #     self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
+                                #         "video_file"] = video_file
+                                #     self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
+                                #         "id1"] = id1
+                                #     self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
+                                #         "id2"] = id2
+                                # except:
+                                #     pass
+                                #
+                                # self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
+                                #     "ts_start"] = align_annotation.attrib['TIME_SLOT_REF1']
+                                # self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
+                                #     "ts_end"] = align_annotation.attrib['TIME_SLOT_REF2']
+                                #
+                                # self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
+                                #     "time_start"] = ts_start
+                                # self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
+                                #     "time_end"] = ts_end
+                                #
+                                # self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
+                                #     "milli_start"] = self.time_slots[align_annotation.attrib['TIME_SLOT_REF1']]
+                                # self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
+                                #     "milli_end"] = self.time_slots[align_annotation.attrib['TIME_SLOT_REF2']]
 
-                                self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
-                                    "time_start"] = ts_start
-                                self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
-                                    "time_end"] = ts_end
+                                for meta in self.meta_tiers:
+                                    # print (new_annot["milli_start"])
+                                    print (self.reversed_time_slots[new_annot["milli_start"]][meta.lower()])
+                                    new_annot[meta.lower()] = self.reversed_time_slots[new_annot["milli_start"]][meta.lower()]
+                                    # new_annot[meta.lower()] = self.reversed_time_slots[self.time_slots[align_annotation.attrib['TIME_SLOT_REF1']]][meta.lower()]
+                                    # self.reversed_time_slots[self.time_slots[time_slot]['time']][meta.lower()] = ""
 
-                                self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
-                                    "milli_start"] = self.time_slots[align_annotation.attrib['TIME_SLOT_REF1']]
-                                self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
-                                    "milli_end"] = self.time_slots[align_annotation.attrib['TIME_SLOT_REF2']]
+                                # in_context, in_phase, in_subphase = self.get_meta(align_annotation.attrib['TIME_SLOT_REF1'])
+
+                                # self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
+                                #     "Context"] = in_context
+                                # self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
+                                #     "Phase"] = in_phase
+                                # self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)][
+                                #     "Subphase"] = in_subphase
 
                                 if annotation_value.text in (item for sublist in self.relevant_annotation_values for
                                                              item in sublist):
@@ -198,6 +250,7 @@ class ElanFinder:
                                 j += 1
 
                 done_file += 1
+                # print(json.dumps(self.reversed_time_slots, sort_keys=False, indent=4))
                 self.bar("update", num_of_files, done_file, percentage)
         self.bar("finished", num_of_files, 0, 0)
 
@@ -205,6 +258,46 @@ class ElanFinder:
         # print(json.dumps(self.time_slots, sort_keys=False, indent=4))
         # print(len(self.all_tiers))
         # print(len(self.relevant_annotation_values))
+
+    def reset_search(self):
+        self.time_slots = {}
+        self.all_tiers = []
+        self.annotations = {}
+        self.annotation_values = []
+        self.relevant_annotation_values = []
+        self.combo_linguistic_type_ref.set('')
+        self.combo_annotation_value.set('')
+        self.entry_Elan_folder.delete(0, 'end')
+        self.tree.delete(*self.tree.get_children())
+
+    def reverse_time_slots(self):
+        for time_slot in self.time_slots:
+            if not self.keys_exists(self.reversed_time_slots, self.time_slots[time_slot]['time']):
+                self.reversed_time_slots[self.time_slots[time_slot]['time']] = {}
+            for meta in self.meta_tiers:
+                self.reversed_time_slots[self.time_slots[time_slot]['time']][meta.lower()] = ""
+        # print(json.dumps(self.reversed_time_slots, sort_keys=False, indent=4))
+
+    # def complete_time_slots(self):
+    #     old_time = 0
+    #
+    #     for time_slot in self.time_slots:
+    #         new_time = time_slot['time']
+    #         old_meta = {}
+    #         for meta in self.meta_tiers:
+    #                 old_meta["old_{0}".format(meta)] = time_slot[meta.lower()]
+    #         # if new_time == old_time:
+
+
+
+    def get_ts_int(self, string, num_char):
+        right_str = string[-(len(string)-num_char):]
+        return right_str
+
+    def get_meta(self, ts_str):
+        ts_int = ts_str[-(len(ts_str)-2):]
+
+        return in_context, in_phase, in_subphase
 
     def keys_exists(self, element, *keys):
         '''
@@ -228,7 +321,7 @@ class ElanFinder:
             self.progress['value'] = done_file * percentage
             self.label_files.config(text='Analyzing %d out of %s files. Please wait...' % (done_file, num_of_files))
         elif state == "finished":
-            self.label_files.config(text='Done! %s files analyzed!' % (num_of_files))
+            self.label_files.config(text='Done! %s files analyzed!' % num_of_files)
         self.root.update_idletasks()
 
     def on_double_click(self, event):
@@ -255,25 +348,26 @@ class ElanFinder:
             self._job = self.root.after(self.delay, self.update_frame)
 
     def update_tree(self):
-        print("update tree")
         self.tree.delete(*self.tree.get_children())
         try:
-            print(self.combo_linguistic_type_ref.get())
-            print(self.combo_annotation_value.get())
             dico = self.annotations[self.combo_linguistic_type_ref.get()][self.combo_annotation_value.get()]
-            print(dico)
             for record in dico:
-                print(record)
-                self.tree.insert(parent='', index='end', iid=None, text="",
+                if self.combo_filter.get() is None:
+                    self.tree.insert(parent='', index='end', iid=None, text="",
                                  values=(record, dico[record]['video_file'], dico[record]['id1'], dico[record]['id2'],
                                          dico[record]['time_start']))
+                else:
+                    self.tree.insert(parent='', index='end', iid=None, text="",
+                                 values=(record, dico[record]['video_file'], dico[record]['id1'], dico[record]['id2'],
+                                         dico[record]['time_start']))
+
         except:
             pass
 
     def ask_elan_directory(self):
         self.selected_dir = filedialog.askdirectory()
-        self.entry_Elan_folder.insert(0, self.selected_dir)
         self.load_eaf_lists()
+        self.entry_Elan_folder.insert(0, self.selected_dir)
         self.combo_linguistic_type_ref['values'] = self.all_tiers
         # prepare_label_linguistic_type()
 
@@ -287,9 +381,12 @@ class ElanFinder:
         self.update_tree()
         return self.annotation_values
 
+    def combo_filter_update(self, event):
+        pass
+
     def get_time(self, ts_start, ts_end, format_style):
-        millis_start = self.time_slots[ts_start]
-        millis_end = self.time_slots[ts_end]
+        millis_start = self.time_slots[ts_start]['time']
+        millis_end = self.time_slots[ts_end]['time']
 
         if format_style == "hh:mm:ss":
             time_start = self.conv_millis_to_hh_mm_ss(millis_start)
