@@ -14,6 +14,9 @@ import PIL.Image, PIL.ImageTk
 import os
 import xml.etree.ElementTree as ET
 import json
+import pandas as pd
+import xlsxwriter as xw
+from datetime import datetime
 
 
 class ElanFinder:
@@ -33,36 +36,43 @@ class ElanFinder:
         self.meta_tiers = ["Context", "Phases", "Subphases"]
         self.relevant_meta_tiers = [[] for _ in self.meta_tiers]
         self.var_check = IntVar()
-
+        self.xl_header = ['id', 'tier type', 'annotation value', 'file', 'video_file', 'id1', 'id2',
+                          'ts_start', 'ts_end', 'time_start', 'time_end', 'milli_start', 'milli_end',
+                          "context", "phases", "subphases"]
         self.vid = None
         self.photo = None
         self.selected_dir = None
         self._job = None
 
+        self.bt_width = 20
+        self.cb_width = 30
+        self.delay = 5
+
+
         # create a label, entrybox and button for 'ELAN folder'
         Label(self.root, text="Choose ELAN folder", background='light grey').grid(row=1, column=1)
         self.entry_Elan_folder = Entry(self.root, width=50)
-        self.entry_Elan_folder.grid(row=2, column=1)
+        self.entry_Elan_folder.grid(row=2, column=1, padx=30)
         self.entry_Elan_folder.insert(0, "")
-        self.button_Elan_folder = Button(self.root, text="Browse", width=42, command=lambda: self.ask_elan_directory())
-        self.button_Elan_folder.grid(row=3, column=1)
+        self.bt_Elan_folder = Button(self.root, text="Browse", width=self.bt_width, command=lambda: self.ask_elan_directory())
+        self.bt_Elan_folder.grid(row=3, column=1)
 
         self.progress = ttk.Progressbar(self.root, orient=HORIZONTAL,
-                                        length=300, mode='determinate')
+                                        length=self.bt_width*7.5, mode='determinate')
         self.progress.grid(row=4, column=1)
         self.label_files = Label(text="0 file uploaded", background='light grey')
         self.label_files.grid(row=5, column=1, pady=5)
         # Label(text="", background='light grey').grid(row=6, column=1)
 
         # create a label and combobox 'linguistic_type'
-        Label(text="Select a linguistic type", background='light grey').grid(row=7, column=1)
-        self.combo_linguistic_type_ref = ttk.Combobox(self.root, textvariable=StringVar(), width=48)
+        Label(text="Select a tier type", background='light grey').grid(row=7, column=1)
+        self.combo_linguistic_type_ref = ttk.Combobox(self.root, textvariable=StringVar(), width=self.cb_width)
         self.combo_linguistic_type_ref.grid(row=8, column=1)
         self.combo_linguistic_type_ref.bind("<<ComboboxSelected>>", self.combo_linguistic_type_ref_update)
 
         # create a label and combobox 'annotation value'
         Label(text="Select an annotation value", background='light grey').grid(row=9, column=1)
-        self.combo_annotation_value = ttk.Combobox(self.root, textvariable=StringVar(), width=48)
+        self.combo_annotation_value = ttk.Combobox(self.root, textvariable=StringVar(), width=self.cb_width)
         self.combo_annotation_value.grid(row=10, column=1)
         self.combo_annotation_value.bind("<<ComboboxSelected>>", self.combo_annotation_value_update)
 
@@ -73,47 +83,137 @@ class ElanFinder:
 
         # create a label and combobox 'filter'
         Label(text="Context filter", background='light grey').grid(row=13, column=1)
-        self.combo_ctx = ttk.Combobox(self.root, textvariable=StringVar(), width=48)
+        self.combo_ctx = ttk.Combobox(self.root, textvariable=StringVar(), width=self.cb_width)
         self.combo_ctx.grid(row=14, column=1)
         self.combo_ctx.bind("<<ComboboxSelected>>", self.change_filter)
         Label(text="Phase filter", background='light grey').grid(row=15, column=1)
-        self.combo_phs = ttk.Combobox(self.root, textvariable=StringVar(), width=48)
+        self.combo_phs = ttk.Combobox(self.root, textvariable=StringVar(), width=self.cb_width)
         self.combo_phs.grid(row=16, column=1)
         self.combo_phs.bind("<<ComboboxSelected>>", self.change_filter)
         Label(text="Subphase filter", background='light grey').grid(row=17, column=1)
-        self.combo_sph = ttk.Combobox(self.root, textvariable=StringVar(), width=48)
+        self.combo_sph = ttk.Combobox(self.root, textvariable=StringVar(), width=self.cb_width)
         self.combo_sph.grid(row=18, column=1)
         self.combo_sph.bind("<<ComboboxSelected>>", self.change_filter)
+
+        self.bt_reset_filters = Button(self.root, text="Reset filters", width=self.bt_width, command=lambda: self.reset_filter())
+        self.bt_reset_filters.grid(row=19, column=1)
+
+        self.label_files = Label(text="0 file uploaded", background='light grey')
+        self.label_files.grid(row=5, column=1, pady=5)
+
+        self.label_found = Label(text="0 result found", background='light grey')
+        self.label_found.grid(row=21, column=1)
 
         # create tree and vertical scrollbar
         self.tree = ttk.Treeview(self.root)
         self.vsb = ttk.Scrollbar(self.root, orient="vertical", command=self.tree.yview)
         self.vsb.place(x=633, y=335, height=225)
         self.tree.configure(yscrollcommand=self.vsb.set)
-        self.tree['columns'] = ("Clip", "File", "Context", "Phase", "Subphase", "Time")
+        self.tree['columns'] = ("Event", "File", "Context", "Phase", "Subphase", "Time")
         self.tree.column('#0', width=0, stretch=NO)
-        self.tree.column("Clip", width=50, anchor=CENTER)
+        self.tree.column("Event", width=50, anchor=CENTER)
         self.tree.column("File", width=250, anchor=W)
         self.tree.column("Context", width=75, anchor=CENTER)
         self.tree.column("Phase", width=75, anchor=CENTER)
         self.tree.column("Subphase", width=75, anchor=CENTER)
         self.tree.column("Time", width=75, anchor=CENTER)
-        self.tree.heading("Clip", text="Clip")
+        self.tree.heading("Event", text="Event")
         self.tree.heading("File", text="File", anchor=W)
         self.tree.heading("Context", text="Context")
         self.tree.heading("Phase", text="Phase")
         self.tree.heading("Subphase", text="Subphase")
         self.tree.heading("Time", text="Time")
-        self.tree.grid(row=19, column=1, padx=30, pady=5)
+        self.tree.grid(row=1, column=2, rowspan=10, columnspan=2,  padx=30, pady=5)
         self.tree.bind("<Double-1>", self.on_double_click)
+
+        self.bt_exp_all = Button(self.root, text="Export All", width=self.bt_width, command=lambda: self.export_xl("all"))
+        self.bt_exp_all.grid(row=11, column=2)
+        self.bt_exp_selection = Button(self.root, text="Export Selection", width=self.bt_width, command=lambda: self.export_xl("selection"))
+        self.bt_exp_selection.grid(row=11, column=3)
+
 
         # create canvas for video
         self.canvas = Canvas(self.root, width=600, height=360)
-        self.canvas.grid(row=20, column=1)
-        self.delay = 5
+        self.canvas.grid(row=12, column=2, rowspan=9, columnspan=2, pady=5)
+
+        self.bt_open_in_elan = Button(self.root, text="Open in ELAN", width=self.bt_width, command=lambda: self.open_in_elan())
+        self.bt_open_in_elan.grid(row=21, column=2, pady=5)
+        self.bt_stop_playing = Button(self.root, text="Stop playing", width=self.bt_width, command=lambda: self.stop_playing())
+        self.bt_stop_playing.grid(row=21, column=3, pady=5)
 
         # loop
         self.root.mainloop()
+
+
+    def export_xl(self, span):  # xlsxwriter library stores data to excel
+        now = datetime.now().strftime("%Y%m%d%H%M%S")
+        wb = xw.Workbook("output " + now + ".xlsx") # Create workbook
+        ws = wb.add_worksheet("elan_data")  # Create child table
+        ws.activate()  # Activation table
+        ws.write_row('A1', self.xl_header)  # Write the header from cell A1
+        i = 2  # Start writing data from the second line
+        data = []
+
+        if span == "all":
+            full_dico = self.annotations
+            for tier_type in full_dico:
+                for annotation_value in full_dico[tier_type]:
+                    dico = full_dico[tier_type][annotation_value]
+                    for key in dico:
+                        data.append(key)
+                        for sub_key in dico[key]:
+                            data.append(dico[key][sub_key])
+                        ws.write_row('A' + str(i), data)
+                        data = []
+                        i += 1
+
+        elif span == "selection":
+            dico = self.annotations[self.combo_linguistic_type_ref.get()][self.combo_annotation_value.get()]
+            for key in dico:
+                data.append(key)
+                for sub_key in dico[key]:
+                    data.append(dico[key][sub_key])
+                ws.write_row('A' + str(i), data)
+                data = []
+                i += 1
+
+        # print(json.dumps(dico, sort_keys=False, indent=4))
+
+        wb.close()  # Close table
+
+    def export_all2(self, dico):
+        # dct = {'ID': {0: 23, 1: 43, 2: 12,
+        #               3: 13, 4: 67, 5: 89,
+        #               6: 90, 7: 56, 8: 34},
+        #        'Name': {0: 'Ram', 1: 'Deep',
+        #                 2: 'Yash', 3: 'Aman',
+        #                 4: 'Arjun', 5: 'Aditya',
+        #                 6: 'Divya', 7: 'Chalsea',
+        #                 8: 'Akash'},
+        #        'Marks': {0: 89, 1: 97, 2: 45, 3: 78,
+        #                  4: 56, 5: 76, 6: 100, 7: 87,
+        #                  8: 81},
+        #        'Grade': {0: 'B', 1: 'A', 2: 'F', 3: 'C',
+        #                  4: 'E', 5: 'C', 6: 'A', 7: 'B',
+        #                  8: 'B'}
+        #        }
+        # forming dataframe
+        data = pd.DataFrame(dico)
+        # storing into the excel file
+        data.to_excel("output.xlsx")
+
+    def stop_playing(self):
+        if self._job is not None:
+            self.root.after_cancel(self._job)
+            self._job = None
+
+    def open_in_elan(self):
+        selected_item = self.tree.focus()
+        clip_key = self.tree.item(selected_item)['values'][0]
+        filename = self.annotations[self.combo_linguistic_type_ref.get()][self.combo_annotation_value.get()][
+                                    str(clip_key)]["file"]
+        path = os.path.join(self.selected_dir, filename)
+        os.startfile(path)
 
     def change_filter(self, event):
         self.update_tree()
@@ -210,9 +310,18 @@ class ElanFinder:
                                 self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][str(j)] = {}
                                 new_annot = self.annotations[tier.attrib['LINGUISTIC_TYPE_REF']][annotation_value.text][
                                     str(j)]
+
+                                new_annot["tier type"] = tier.attrib['LINGUISTIC_TYPE_REF']
+                                new_annot["annotation value"] = annotation_value.text
                                 new_annot["file"] = file
                                 try:
                                     new_annot["video_file"] = video_file
+                                except:
+                                    pass
+
+                                new_annot["id1"] = None
+                                new_annot["id2"] = None
+                                try:
                                     new_annot["id1"] = id1
                                     new_annot["id2"] = id2
                                 except:
@@ -244,12 +353,19 @@ class ElanFinder:
                 # print(json.dumps(self.reversed_time_slots, sort_keys=False, indent=4))
                 self.bar("update", num_of_files, done_file, percentage)
         self.bar("finished", num_of_files, 0, 0)
+        # self.export_all(self.annotations["Behaviour"]["Approach"])
 
         # print(json.dumps(self.annotations, sort_keys=False, indent=4))
         # print(json.dumps(self.time_slots, sort_keys=False, indent=4))
         # print(len(self.all_tiers))
         # print(len(self.relevant_annotation_values))
         # print(self.relevant_meta_tiers)
+
+    def reset_filter(self):
+        self.combo_ctx.set('')
+        self.combo_phs.set('')
+        self.combo_sph.set('')
+        self.update_tree()
 
     def reset_search(self):
         self.time_slots = {}
@@ -276,7 +392,6 @@ class ElanFinder:
 
     def get_meta(self, ts_str):
         ts_int = ts_str[-(len(ts_str) - 2):]
-
         return in_context, in_phase, in_subphase
 
     def keys_exists(self, element, *keys):
@@ -314,9 +429,7 @@ class ElanFinder:
                 "milli_start"]
 
         self.vid = MyVideoCapture(start_milli, os.path.join(self.selected_dir, video_name))
-        if self._job is not None:
-            self.root.after_cancel(self._job)
-            self._job = None
+        self.stop_playing()
         self.update_frame()
 
     def update_frame(self):
@@ -328,6 +441,7 @@ class ElanFinder:
             self._job = self.root.after(self.delay, self.update_frame)
 
     def update_tree(self):
+        i = 0
         self.tree.delete(*self.tree.get_children())
         dico = self.annotations[self.combo_linguistic_type_ref.get()][self.combo_annotation_value.get()]
         for record in dico:
@@ -342,10 +456,16 @@ class ElanFinder:
                 if not dico[record]['subphases'] == self.combo_sph.get():
                     bl_sph = False
             if bl_ctx and bl_phs and bl_sph:
+                i += 1
                 self.tree.insert(parent='', index='end', iid=None, text="",
                                  values=(
                                  record, dico[record]['video_file'], dico[record]['context'], dico[record]['phases'],
                                  dico[record]['subphases'], dico[record]['time_start']))
+
+        if i > 1:
+            self.label_found.config(text='%s results found' % i)
+        else:
+            self.label_found.config(text='%s result found' % i)
 
     def ask_elan_directory(self):
         self.selected_dir = filedialog.askdirectory()
@@ -355,13 +475,13 @@ class ElanFinder:
         self.combo_ctx['values'] = self.relevant_meta_tiers[0]
         self.combo_phs['values'] = self.relevant_meta_tiers[1]
         self.combo_sph['values'] = self.relevant_meta_tiers[2]
-        # prepare_label_linguistic_type()
 
     def combo_linguistic_type_ref_update(self, event):
         ind = self.all_tiers.index(self.combo_linguistic_type_ref.get())
         self.combo_annotation_value['values'] = tuple(self.relevant_annotation_values[ind])
         self.combo_annotation_value.set('')
         self.tree.delete(*self.tree.get_children())
+        self.label_found.config(text='%s result found' % 0)
 
     def combo_annotation_value_update(self, event):
         self.update_tree()
