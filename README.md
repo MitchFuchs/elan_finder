@@ -11,6 +11,15 @@ You possess a large database of ELAN-annotated videos and need to access / view 
 3) The table shows a list of all matching results in your database.
 4) Double-click any row to display the video of your selected annotation. 
 
+# dependencies
+Use `conda create --name <envname> --file requirements.txt`
+or `conda install --file requirements.txt`
+or `pip install -r requirements.txt`
+
+or manually install:
+- [pip or conda] install opencv
+- [pip or conda] install pillow
+
 # contact
 Feel free to reach out at michael@neptune-consulting.ch
 Cheers, 
