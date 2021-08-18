@@ -12,13 +12,21 @@ You possess a large database of ELAN-annotated videos and need to access / view 
 4) Double-click any row to display the video of your selected annotation. 
 
 # dependencies
-Use `conda create --name <envname> --file requirements.txt`
-or `conda install --file requirements.txt`
-or `pip install -r requirements.txt`
+Using our env freeze: 
+- `pip install -r requirements.txt`
 
-or manually install:
-- [pip or conda] install opencv
-- [pip or conda] install pillow
+Or manually install:
+- `[pip or conda] install opencv`
+- `[pip or conda] install pillow`
+- `[pip or conda] install pandas`
+- `[pip or conda] install xlsxwriter`
+
+# dev
+To freeze the venv:
+- `pip list --format=freeze > requirements.txt`
+
+To build executable on mac (app witll be in build folder):
+- `pyinstaller --onefile --hidden-import cmath main.py`
 
 # contact
 Feel free to reach out at michael@neptune-consulting.ch
