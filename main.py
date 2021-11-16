@@ -11,12 +11,13 @@ from tkinter import ttk
 from tkinter import filedialog
 import cv2
 import PIL.Image, PIL.ImageTk
-import os
+import os, sys, subprocess
 import xml.etree.ElementTree as ET
 import json
 import pandas as pd
 import xlsxwriter as xw
 from datetime import datetime
+import time
 
 
 class ElanFinder:
@@ -47,6 +48,8 @@ class ElanFinder:
         self.bt_width = 20
         self.cb_width = 30
         self.delay = 5
+        self.max_fps = 0
+        self.prev_timestamp = 0
 
 
         # create a label, entrybox and button for 'ELAN folder'
@@ -123,7 +126,7 @@ class ElanFinder:
         self.tree.heading("Phase", text="Phase")
         self.tree.heading("Subphase", text="Subphase")
         self.tree.heading("Time", text="Time")
-        self.tree.grid(row=1, column=2, rowspan=10, columnspan=2,  padx=30, pady=5)
+        self.tree.grid(row=1, column=2, rowspan=10, columnspan=3,  padx=30, pady=5)
         self.tree.bind("<Double-1>", self.on_double_click)
 
         self.bt_exp_all = Button(self.root, text="Export All", width=self.bt_width, command=lambda: self.export_xl("all"))
@@ -131,15 +134,17 @@ class ElanFinder:
         self.bt_exp_selection = Button(self.root, text="Export Selection", width=self.bt_width, command=lambda: self.export_xl("selection"))
         self.bt_exp_selection.grid(row=11, column=3)
 
-
         # create canvas for video
         self.canvas = Canvas(self.root, width=600, height=360)
-        self.canvas.grid(row=12, column=2, rowspan=9, columnspan=2, pady=5)
+        self.canvas.grid(row=12, column=2, rowspan=9, columnspan=3, pady=5)
 
         self.bt_open_in_elan = Button(self.root, text="Open in ELAN", width=self.bt_width, command=lambda: self.open_in_elan())
         self.bt_open_in_elan.grid(row=21, column=2, pady=5)
         self.bt_stop_playing = Button(self.root, text="Stop playing", width=self.bt_width, command=lambda: self.stop_playing())
         self.bt_stop_playing.grid(row=21, column=3, pady=5)
+
+        self.slider = ttk.Scale(self.root, from_=1, to=60, value=25, orient='horizontal')
+        self.slider.grid(row=21, column=4)
 
         # loop
         self.root.mainloop()
@@ -147,7 +152,7 @@ class ElanFinder:
 
     def export_xl(self, span):  # xlsxwriter library stores data to excel
         now = datetime.now().strftime("%Y%m%d%H%M%S")
-        wb = xw.Workbook("output " + now + ".xlsx") # Create workbook
+        wb = xw.Workbook(os.path.join(os.getcwd(), "output " + now + ".xlsx"))  # Create workbook
         ws = wb.add_worksheet("elan_data")  # Create child table
         ws.activate()  # Activation table
         ws.write_row('A1', self.xl_header)  # Write the header from cell A1
@@ -176,31 +181,8 @@ class ElanFinder:
                 ws.write_row('A' + str(i), data)
                 data = []
                 i += 1
-
         # print(json.dumps(dico, sort_keys=False, indent=4))
-
         wb.close()  # Close table
-
-    def export_all2(self, dico):
-        # dct = {'ID': {0: 23, 1: 43, 2: 12,
-        #               3: 13, 4: 67, 5: 89,
-        #               6: 90, 7: 56, 8: 34},
-        #        'Name': {0: 'Ram', 1: 'Deep',
-        #                 2: 'Yash', 3: 'Aman',
-        #                 4: 'Arjun', 5: 'Aditya',
-        #                 6: 'Divya', 7: 'Chalsea',
-        #                 8: 'Akash'},
-        #        'Marks': {0: 89, 1: 97, 2: 45, 3: 78,
-        #                  4: 56, 5: 76, 6: 100, 7: 87,
-        #                  8: 81},
-        #        'Grade': {0: 'B', 1: 'A', 2: 'F', 3: 'C',
-        #                  4: 'E', 5: 'C', 6: 'A', 7: 'B',
-        #                  8: 'B'}
-        #        }
-        # forming dataframe
-        data = pd.DataFrame(dico)
-        # storing into the excel file
-        data.to_excel("output.xlsx")
 
     def stop_playing(self):
         if self._job is not None:
@@ -213,7 +195,11 @@ class ElanFinder:
         filename = self.annotations[self.combo_linguistic_type_ref.get()][self.combo_annotation_value.get()][
                                     str(clip_key)]["file"]
         path = os.path.join(self.selected_dir, filename)
-        os.startfile(path)
+        if sys.platform == "win32":
+            os.startfile(path)
+        else:
+            opener = "open" if sys.platform == "darwin" else "xdg-open"
+            subprocess.call([opener, path])
 
     def change_filter(self, event):
         self.update_tree()
@@ -430,14 +416,20 @@ class ElanFinder:
 
         self.vid = MyVideoCapture(start_milli, os.path.join(self.selected_dir, video_name))
         self.stop_playing()
+        self.prev_timestamp = time.time()
         self.update_frame()
 
     def update_frame(self):
         # Get a frame from the video source
-        ret, frame = self.vid.get_frame()
-        if ret:
-            self.photo = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(frame))
-            self.canvas.create_image(0, 0, image=self.photo, anchor=NW)
+        time_elapsed = time.time() - self.prev_timestamp
+        if time_elapsed > 1. / self.slider.get():
+            ret, frame = self.vid.get_frame()
+            self.prev_timestamp = time.time()
+            if ret:
+                self.photo = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(frame))
+                self.canvas.create_image(0, 0, image=self.photo, anchor=NW)
+                self._job = self.root.after(self.delay, self.update_frame)
+        else:
             self._job = self.root.after(self.delay, self.update_frame)
 
     def update_tree(self):
@@ -533,8 +525,10 @@ class MyVideoCapture:
         self.dim = self.get_dim(self.width, self.height)
 
     def get_frame(self):
-        if self.vid.isOpened():
+        while self.vid.isOpened():
+
             ret, frame = self.vid.read()
+
             if ret:
                 # Return a boolean success flag and the current frame converted to BGR
                 return ret, cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), self.dim)
