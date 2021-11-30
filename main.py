@@ -125,7 +125,7 @@ class ElanFinder:
         self.tree.heading(self._heading_tree[3], text="Phase")
         self.tree.heading(self._heading_tree[4], text="Subphase")
         self.tree.heading(self._heading_tree[5], text="Time")
-        self.tree.grid(row=1, column=2, rowspan=10, columnspan=2, padx=30, pady=5)
+        self.tree.grid(row=1, column=2, rowspan=10, columnspan=3, padx=30, pady=5)
 
         self.tree.bind("<Double-1>", self.on_double_click)
 
