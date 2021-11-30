@@ -10,11 +10,13 @@ from tkinter import ttk
 from tkinter import filedialog
 import cv2
 import PIL.Image, PIL.ImageTk
-import os
+import os, sys, subprocess
 import xml.etree.ElementTree as ET
 import pandas as pd
 from datetime import datetime
+import time
 # import json
+
 
 class ElanFinder:
     def __init__(self):
@@ -46,6 +48,8 @@ class ElanFinder:
         self.bt_width = 20
         self.cb_width = 30
         self.delay = 5
+        self.max_fps = 0
+        self.prev_timestamp = 0
 
         # create a label, entrybox and button for 'ELAN folder'
         Label(self.root, text="Choose ELAN folder", background='light grey').grid(row=1, column=1)
@@ -108,6 +112,7 @@ class ElanFinder:
         self.tree.configure(yscrollcommand=self.vsb.set)
         self.tree['columns'] = ("Event", "File", "Context", "Phase", "Subphase", "Time")
         self.tree.column('#0', width=0, stretch=NO)
+
         self.tree.column(self._heading_tree[0], width=50, anchor=CENTER)
         self.tree.column(self._heading_tree[1], width=250, anchor=W)
         self.tree.column(self._heading_tree[2], width=75, anchor=CENTER)
@@ -121,6 +126,7 @@ class ElanFinder:
         self.tree.heading(self._heading_tree[4], text="Subphase")
         self.tree.heading(self._heading_tree[5], text="Time")
         self.tree.grid(row=1, column=2, rowspan=10, columnspan=2, padx=30, pady=5)
+
         self.tree.bind("<Double-1>", self.on_double_click)
 
         self.bt_exp_all = Button(self.root, text="Export All", width=self.bt_width,
@@ -132,7 +138,7 @@ class ElanFinder:
 
         # create canvas for video
         self.canvas = Canvas(self.root, width=600, height=360)
-        self.canvas.grid(row=12, column=2, rowspan=9, columnspan=2, pady=5)
+        self.canvas.grid(row=12, column=2, rowspan=9, columnspan=3, pady=5)
 
         self.bt_open_in_elan = Button(self.root, text="Open in ELAN", width=self.bt_width,
                                       command=lambda: self.open_in_elan())
@@ -140,6 +146,9 @@ class ElanFinder:
         self.bt_stop_playing = Button(self.root, text="Stop playing", width=self.bt_width,
                                       command=lambda: self.stop_playing())
         self.bt_stop_playing.grid(row=21, column=3, pady=5)
+
+        self.slider = ttk.Scale(self.root, from_=1, to=60, value=25, orient='horizontal')
+        self.slider.grid(row=21, column=4)
 
         # loop
         self.root.mainloop()
@@ -257,6 +266,7 @@ class ElanFinder:
         self.tree.delete(*self.tree.get_children())
         self.label_found.config(text='%s result found' % 0)
 
+
     def on_double_click(self, event):
         clip_key = self.tree.item(self.tree.focus())['values'][0]
         start_milli = self.df.iloc[clip_key].loc['Time_value_ts1']
@@ -273,7 +283,13 @@ class ElanFinder:
             self.df.to_excel(f'output {timestamp}.xlsx')
 
     def open_in_elan(self):
-        os.startfile(os.path.join(self.selected_dir, self.tree.item(self.tree.focus())['values'][1]))
+        path = os.path.join(self.selected_dir, self.tree.item(self.tree.focus())['values'][1])
+        if sys.platform == "win32":
+            os.startfile(path)
+        else:
+            opener = "open" if sys.platform == "darwin" else "xdg-open"
+            subprocess.call([opener, path])
+        
 
     def reset_filter(self, event):
         self.combo_ctx.set('')
@@ -300,15 +316,20 @@ class ElanFinder:
         seconds = str(int((millis / 1000) % 60)).zfill(2)
         minutes = str(int((millis / (1000 * 60)) % 60)).zfill(2)
         hours = str(int((millis / (1000 * 60 * 60)) % 24)).zfill(2)
-
+        
         return ':'.join([str(hours), str(minutes), str(seconds)])
 
     def update_frame(self):
         # Get a frame from the video source
-        ret, frame = self.vid.get_frame()
-        if ret:
-            self.photo = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(frame))
-            self.canvas.create_image(0, 0, image=self.photo, anchor=NW)
+        time_elapsed = time.time() - self.prev_timestamp
+        if time_elapsed > 1. / self.slider.get():
+            ret, frame = self.vid.get_frame()
+            self.prev_timestamp = time.time()
+            if ret:
+                self.photo = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(frame))
+                self.canvas.create_image(0, 0, image=self.photo, anchor=NW)
+                self._job = self.root.after(self.delay, self.update_frame)
+        else:
             self._job = self.root.after(self.delay, self.update_frame)
 
     def stop_playing(self):
@@ -331,8 +352,10 @@ class MyVideoCapture:
         self.dim = self.get_dim(self.width, self.height)
 
     def get_frame(self):
-        if self.vid.isOpened():
+        while self.vid.isOpened():
+
             ret, frame = self.vid.read()
+
             if ret:
                 # Return a boolean success flag and the current frame converted to BGR
                 return ret, cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), self.dim)
