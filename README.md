@@ -2,6 +2,9 @@
 This GUI provides a search engine for ELAN files (.eaf EAF Annotation Format) in a specified directory.
 Based on your ELAN annotations, it allows direct access to your ELAN through the GUI and can save you valuable time on researching your ELAN database.
 
+# demo 
+https://user-images.githubusercontent.com/73831423/144033054-50075f25-97c6-48c4-98fb-c16542d3326b.mp4
+
 # use case example 
 You possess a large database of ELAN-annotated videos and need to access / view your annotations without having to open each file individually. 
 
@@ -22,6 +25,7 @@ Or manually install:
 - `[pip or conda] install xlsxwriter`
 
 # dev
+
 To freeze the venv:
 - `pip list --format=freeze > requirements.txt`
 
