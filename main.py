@@ -17,7 +17,6 @@ from datetime import datetime
 import time
 # import json
 
-
 class ElanFinder:
     def __init__(self):
         self._col = ['linguistic_type_ref', 'tier_id', 'annotation_value', 'annotation_id', 'time_slot_ref1',
@@ -36,20 +35,21 @@ class ElanFinder:
         self._heading_tree = ["Event", "File", "Context", "Phase", "Subphase", "Time"]
         self._col_tree = ["index", "file", "Context_ts1", "Phases_ts1", "Subphases_ts1", "Time_milli_ts1"]
 
-        self.root = Tk()
-        self.root.configure(background='light grey')
-        self.root.title("ELAN finder")
+        # self.df = None
+        self.parsed_list = []
 
         self.vid = None
         self.photo = None
         self.selected_dir = None
+        self.selected_dirs = []
         self._job = None
 
         self.bt_width = 20
         self.cb_width = 30
-        self.delay = 5
-        self.max_fps = 0
-        self.prev_timestamp = 0
+
+        self.root = Tk()
+        self.root.configure(background='light grey')
+        self.root.title("ELAN finder")
 
         # create a label, entrybox and button for 'ELAN folder'
         Label(self.root, text="Choose ELAN folder", background='light grey').grid(row=1, column=1)
@@ -80,9 +80,9 @@ class ElanFinder:
         self.combo_annotation_value.bind("<<ComboboxSelected>>", self.update_tree)
 
         # create a label and combobox 'filter'
-        Label(text="Context filter", background='light grey').grid(row=13, column=1)
+        Label(text="Context filter", background='light grey').grid(row=12, column=1)
         self.combo_ctx = ttk.Combobox(self.root, textvariable=StringVar(), width=self.cb_width)
-        self.combo_ctx.grid(row=14, column=1)
+        self.combo_ctx.grid(row=13, column=1)
         self.combo_ctx.bind("<<ComboboxSelected>>", self.update_tree)
         Label(text="Phase filter", background='light grey').grid(row=15, column=1)
         self.combo_phs = ttk.Combobox(self.root, textvariable=StringVar(), width=self.cb_width)
@@ -97,7 +97,9 @@ class ElanFinder:
         #                                command=lambda: self.reset_filter())
         self.bt_reset_filters = Button(self.root, text="Reset filters", width=self.bt_width)
         self.bt_reset_filters.bind("<Button-1>", self.reset_filter)
-        self.bt_reset_filters.grid(row=19, column=1)
+        self.bt_reset_filters.grid(row=19, column=1, pady=5)
+
+        Label(text="", background='light grey', height=12).grid(row=20, column=1)
 
         self.label_files = Label(text="0 file uploaded", background='light grey')
         self.label_files.grid(row=5, column=1, pady=5)
@@ -150,30 +152,37 @@ class ElanFinder:
         self.slider = ttk.Scale(self.root, from_=1, to=60, value=25, orient='horizontal')
         self.slider.grid(row=21, column=4)
 
-        # loop
+        self.delay = 5
+        self.max_fps = 0
+        self.prev_timestamp = 0
+
         self.root.mainloop()
 
     def ask_elan_directory(self):
         self.selected_dir = filedialog.askdirectory()
-        self.load_files()
-        self.entry_Elan_folder.insert(0, self.selected_dir)
-        self.combo_linguistic_type_ref['values'] = self.df['linguistic_type_ref'].unique().tolist()
-        self.combo_ctx['values'] = self.df['Context_ts1'].dropna().unique().tolist()
-        self.combo_phs['values'] = self.df['Phases_ts1'].dropna().unique().tolist()
-        self.combo_sph['values'] = self.df['Subphases_ts1'].dropna().unique().tolist()
+        if self.selected_dir not in self.selected_dirs:
+            self.selected_dirs.insert(0, self.selected_dir)
+            self.load_files()
+            self.entry_Elan_folder.insert(0, self.selected_dirs)
+            self.combo_linguistic_type_ref['values'] = self.df['linguistic_type_ref'].unique().tolist()
+            self.combo_ctx['values'] = self.df['Context_ts1'].dropna().unique().tolist()
+            self.combo_phs['values'] = self.df['Phases_ts1'].dropna().unique().tolist()
+            self.combo_sph['values'] = self.df['Subphases_ts1'].dropna().unique().tolist()
 
     def load_files(self):
         self.reset_search()
-        parsed_list = []
         done_file = 0
         files = [f for f in os.listdir(self.selected_dir) if f.endswith('.eaf')]
         percentage = 100 / len(files)
-        self.df = pd.DataFrame
         for file in files:
-            parsed_list.append(self.parse_eaf_file(file))
+            self.parsed_list.append(self.parse_eaf_file(file))
             done_file += 1
             self.bar("update", len(files), done_file, percentage)
-        self.df = pd.concat(parsed_list)
+        print(self.parsed_list)
+        self.df = pd.concat(self.parsed_list, ignore_index=True)
+        self.df['index'] = self.df.index
+        self.df[['Time_milli_ts1', 'Time_milli_ts2']] = self.df.loc[:, ['Time_value_ts1', 'Time_value_ts2']].applymap(
+            self.conv_millis_to_hh_mm_ss)
         self.bar("finished", len(files), 0, 0)
 
     def parse_eaf_file(self, file):
@@ -227,9 +236,8 @@ class ElanFinder:
         # add header information and file name to df
         df[h.index] = h
         df['file'] = file
-        df['index'] = df.index
         df['media'] = self.media_name(h)
-        df[['Time_milli_ts1', 'Time_milli_ts2']] = df.loc[:,['Time_value_ts1', 'Time_value_ts2']].applymap(self.conv_millis_to_hh_mm_ss)
+        df['selected_dir'] = self.selected_dir
         return df
 
     def media_name(self, h):
@@ -252,7 +260,7 @@ class ElanFinder:
         mask = self.mask_from_filters()
         for index, row in self.df[mask].iterrows():
             self.tree.insert("", 'end', text='', iid=None,
-                             values=list(row.loc[self._col_tree].where(pd.notnull(row.loc[self._col_tree]), '')))
+                                 values=list(row.loc[self._col_tree].where(pd.notnull(row.loc[self._col_tree]), '')))
         num_rows = len(self.df[mask])
         if num_rows > 1:
             self.label_found.config(text='%s results found' % num_rows)
@@ -266,12 +274,12 @@ class ElanFinder:
         self.tree.delete(*self.tree.get_children())
         self.label_found.config(text='%s result found' % 0)
 
-
     def on_double_click(self, event):
         clip_key = self.tree.item(self.tree.focus())['values'][0]
         start_milli = self.df.iloc[clip_key].loc['Time_value_ts1']
         media = self.df.iloc[clip_key].loc['media']
-        self.vid = MyVideoCapture(start_milli, os.path.join(self.selected_dir, media))
+        in_dir = self.df.iloc[clip_key].loc['selected_dir']
+        self.vid = MyVideoCapture(start_milli, os.path.join(in_dir, media))
         self.stop_playing()
         self.update_frame()
 
@@ -283,13 +291,15 @@ class ElanFinder:
             self.df.to_excel(f'output {timestamp}.xlsx')
 
     def open_in_elan(self):
-        path = os.path.join(self.selected_dir, self.tree.item(self.tree.focus())['values'][1])
+        clip_key = self.tree.item(self.tree.focus())['values'][0]
+        eaf_file = self.df.iloc[clip_key].loc['file']
+        in_dir = self.df.iloc[clip_key].loc['selected_dir']
+        path = os.path.join(in_dir, eaf_file)
         if sys.platform == "win32":
             os.startfile(path)
         else:
             opener = "open" if sys.platform == "darwin" else "xdg-open"
             subprocess.call([opener, path])
-        
 
     def reset_filter(self, event):
         self.combo_ctx.set('')
@@ -300,7 +310,7 @@ class ElanFinder:
     def reset_search(self):
         self.combo_linguistic_type_ref.set('')
         self.combo_annotation_value.set('')
-        self.entry_Elan_folder.delete(0, 'end')
+        # self.entry_Elan_folder.delete(0, 'end')
         self.tree.delete(*self.tree.get_children())
 
     def bar(self, state, num_of_files, done_file, percentage):
@@ -316,7 +326,7 @@ class ElanFinder:
         seconds = str(int((millis / 1000) % 60)).zfill(2)
         minutes = str(int((millis / (1000 * 60)) % 60)).zfill(2)
         hours = str(int((millis / (1000 * 60 * 60)) % 24)).zfill(2)
-        
+
         return ':'.join([str(hours), str(minutes), str(seconds)])
 
     def update_frame(self):
