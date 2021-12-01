@@ -28,24 +28,26 @@ class ElanFinder:
         self._tier = ['LINGUISTIC_TYPE_REF', 'TIER_ID']
         self._align = ['ANNOTATION_ID', 'CVE_REF', 'TIME_SLOT_REF1', 'TIME_SLOT_REF2']
         self._cps = ['Context', 'Phases', 'Subphases']
-        self._cps_ts = self._cps + [self._time_attrib[0]]
+        self._cps_ts = self._cps + [self._time_attrib[1]]
         self._cps_ts1 = ['Context_ts1', 'Phases_ts1', 'Subphases_ts1', 'Time_value_ts1']
         self._cps_ts2 = ['Context_ts2', 'Phases_ts2', 'Subphases_ts2', 'Time_value_ts2']
 
         self._heading_tree = ["Event", "File", "Context", "Phase", "Subphase", "Time"]
         self._col_tree = ["index", "file", "Context_ts1", "Phases_ts1", "Subphases_ts1", "Time_milli_ts1"]
-
-        # self.df = None
-        self.parsed_list = []
+        self._header = ['AUTHOR', 'DATE', 'FORMAT', 'VERSION', 'MEDIA_FILE', 'TIME_UNITS', 'MEDIA_URL', 'MIME_TYPE']
+        self._path = ['selected_dir', 'file', 'media']
+        self.selected_dirs = []
 
         self.vid = None
         self.photo = None
         self.selected_dir = None
-        self.selected_dirs = []
         self._job = None
 
         self.bt_width = 20
         self.cb_width = 30
+        self.delay = 5
+        self.max_fps = 0
+        self.prev_timestamp = 0
 
         self.root = Tk()
         self.root.configure(background='light grey')
@@ -63,32 +65,32 @@ class ElanFinder:
         self.progress = ttk.Progressbar(self.root, orient=HORIZONTAL,
                                         length=self.bt_width * 7.5, mode='determinate')
         self.progress.grid(row=4, column=1)
-        self.label_files = Label(text="0 file uploaded", background='light grey')
+        self.label_files = Label(self.root, text="0 file uploaded", background='light grey')
         self.label_files.grid(row=5, column=1, pady=5)
         # Label(text="", background='light grey').grid(row=6, column=1)
 
         # create a label and combobox 'linguistic_type'
-        Label(text="Select a tier type", background='light grey').grid(row=7, column=1)
+        Label(self.root, text="Select a tier type", background='light grey').grid(row=7, column=1)
         self.combo_linguistic_type_ref = ttk.Combobox(self.root, textvariable=StringVar(), width=self.cb_width)
         self.combo_linguistic_type_ref.grid(row=8, column=1)
         self.combo_linguistic_type_ref.bind("<<ComboboxSelected>>", self.combo_linguistic_type_ref_update)
 
         # create a label and combobox 'annotation value'
-        Label(text="Select an annotation value", background='light grey').grid(row=9, column=1)
+        Label(self.root, text="Select an annotation value", background='light grey').grid(row=9, column=1)
         self.combo_annotation_value = ttk.Combobox(self.root, textvariable=StringVar(), width=self.cb_width)
         self.combo_annotation_value.grid(row=10, column=1)
         self.combo_annotation_value.bind("<<ComboboxSelected>>", self.update_tree)
 
         # create a label and combobox 'filter'
-        Label(text="Context filter", background='light grey').grid(row=12, column=1)
+        Label(self.root, text="Context filter", background='light grey').grid(row=13, column=1)
         self.combo_ctx = ttk.Combobox(self.root, textvariable=StringVar(), width=self.cb_width)
-        self.combo_ctx.grid(row=13, column=1)
+        self.combo_ctx.grid(row=14, column=1)
         self.combo_ctx.bind("<<ComboboxSelected>>", self.update_tree)
-        Label(text="Phase filter", background='light grey').grid(row=15, column=1)
+        Label(self.root, text="Phase filter", background='light grey').grid(row=15, column=1)
         self.combo_phs = ttk.Combobox(self.root, textvariable=StringVar(), width=self.cb_width)
         self.combo_phs.grid(row=16, column=1)
         self.combo_phs.bind("<<ComboboxSelected>>", self.update_tree)
-        Label(text="Subphase filter", background='light grey').grid(row=17, column=1)
+        Label(self.root, text="Subphase filter", background='light grey').grid(row=17, column=1)
         self.combo_sph = ttk.Combobox(self.root, textvariable=StringVar(), width=self.cb_width)
         self.combo_sph.grid(row=18, column=1)
         self.combo_sph.bind("<<ComboboxSelected>>", self.update_tree)
@@ -99,12 +101,12 @@ class ElanFinder:
         self.bt_reset_filters.bind("<Button-1>", self.reset_filter)
         self.bt_reset_filters.grid(row=19, column=1, pady=5)
 
-        Label(text="", background='light grey', height=12).grid(row=20, column=1)
+        Label(self.root, text="", background='light grey', height=12).grid(row=20, column=1)
 
-        self.label_files = Label(text="0 file uploaded", background='light grey')
+        self.label_files = Label(self.root, text="0 file uploaded", background='light grey')
         self.label_files.grid(row=5, column=1, pady=5)
 
-        self.label_found = Label(text="0 result found", background='light grey')
+        self.label_found = Label(self.root, text="0 result found", background='light grey')
         self.label_found.grid(row=21, column=1)
 
         # create tree and vertical scrollbar
@@ -121,12 +123,12 @@ class ElanFinder:
         self.tree.column(self._heading_tree[3], width=75, anchor=CENTER)
         self.tree.column(self._heading_tree[4], width=75, anchor=CENTER)
         self.tree.column(self._heading_tree[5], width=75, anchor=CENTER)
-        self.tree.heading(self._heading_tree[0], text="Event")
-        self.tree.heading(self._heading_tree[1], text="File", anchor=W)
-        self.tree.heading(self._heading_tree[2], text="Context")
-        self.tree.heading(self._heading_tree[3], text="Phase")
-        self.tree.heading(self._heading_tree[4], text="Subphase")
-        self.tree.heading(self._heading_tree[5], text="Time")
+        self.tree.heading(self._heading_tree[0], text=self._heading_tree[0])
+        self.tree.heading(self._heading_tree[1], text=self._heading_tree[1], anchor=W)
+        self.tree.heading(self._heading_tree[2], text=self._heading_tree[2])
+        self.tree.heading(self._heading_tree[3], text=self._heading_tree[3])
+        self.tree.heading(self._heading_tree[4], text=self._heading_tree[4])
+        self.tree.heading(self._heading_tree[5], text=self._heading_tree[5])
         self.tree.grid(row=1, column=2, rowspan=10, columnspan=3, padx=30, pady=5)
 
         self.tree.bind("<Double-1>", self.on_double_click)
@@ -152,10 +154,7 @@ class ElanFinder:
         self.slider = ttk.Scale(self.root, from_=1, to=60, value=25, orient='horizontal')
         self.slider.grid(row=21, column=4)
 
-        self.delay = 5
-        self.max_fps = 0
-        self.prev_timestamp = 0
-
+        # loop
         self.root.mainloop()
 
     def ask_elan_directory(self):
@@ -171,77 +170,59 @@ class ElanFinder:
 
     def load_files(self):
         self.reset_search()
+        data = []
         done_file = 0
         files = [f for f in os.listdir(self.selected_dir) if f.endswith('.eaf')]
         percentage = 100 / len(files)
         for file in files:
-            self.parsed_list.append(self.parse_eaf_file(file))
+            data.extend(self.parse_eaf_file(file))
             done_file += 1
             self.bar("update", len(files), done_file, percentage)
-        print(self.parsed_list)
-        self.df = pd.concat(self.parsed_list, ignore_index=True)
+        cols = self._col + self._cps_ts1 + self._cps_ts2 + self._header + self._path
+        self.df = pd.DataFrame(data=data, columns=cols)
         self.df['index'] = self.df.index
-        self.df[['Time_milli_ts1', 'Time_milli_ts2']] = self.df.loc[:, ['Time_value_ts1', 'Time_value_ts2']].applymap(
-            self.conv_millis_to_hh_mm_ss)
+        self.df[['Time_milli_ts1', 'Time_milli_ts2']] = self.df.loc[:,['Time_value_ts1', 'Time_value_ts2']].applymap(self.conv_millis_to_hh_mm_ss)
         self.bar("finished", len(files), 0, 0)
 
     def parse_eaf_file(self, file):
-        ts = 'ts'
-        h = pd.Series
-        df_ts = pd.DataFrame(columns=self._time_attrib + self._cps)
-        df = pd.DataFrame(columns=self._col)
+        header = {}
+        time_slots = []
+        values = []
         xroot = ET.parse(os.path.join(self.selected_dir, file)).getroot()
-
         for descendant in xroot.iter():
             if descendant.tag in self._head:
                 # general information from the header
-                if h.empty:
-                    h = pd.Series(descendant.attrib)
-                else:
-                    h = h.append(pd.Series(descendant.attrib))
-
+                header.update(descendant.attrib)
             elif descendant.tag in self._time and descendant.attrib:
                 # general information about time slots
-                df_ts = df_ts.append(descendant.attrib, ignore_index=True)
-
+                time_slots.append([descendant.attrib[self._time_attrib[1]], descendant.attrib[self._time_attrib[0]]])
             elif descendant.tag in self._annot:
                 if descendant.tag == self._annot[0]:  # TIER
-                    linguistic_type_ref = descendant.attrib[self._tier[0]]
-                    tier_id = descendant.attrib[self._tier[1]]
-
+                    linguistic_type_ref, tier_id = descendant.attrib[self._tier[0]], descendant.attrib[self._tier[1]]
                 elif descendant.tag == self._annot[2]:  # ALIGNABLE_ANNOTATION
-                    annotation_id = descendant.attrib[self._align[0]]
-                    # cve_ref = descendant.attrib[self._align[1]]
-                    ts_ref1 = descendant.attrib[self._align[2]]
-                    ts_ref2 = descendant.attrib[self._align[3]]
-
+                    annotation_id, ts_ref1, ts_ref2 = descendant.attrib[self._align[0]], descendant.attrib[self._align[2]], \
+                                                      descendant.attrib[self._align[3]]
+                    # cve_ref = descendant.attrib[_align[1]]
                 elif descendant.tag == self._annot[3]:  # ANNOTATION_VALUE
                     if linguistic_type_ref in self._cps:
-                        if ts not in df_ts.columns:
-                            df_ts[ts] = df_ts[self._time_attrib[1]].str.split(pat=ts, expand=True)[1].astype(int)
-                        mask_ts = (df_ts[ts].ge(int(ts_ref1.split(ts)[1])) & df_ts[ts].le(int(ts_ref2.split(ts)[1])))
-                        df_ts.loc[mask_ts, linguistic_type_ref] = descendant.text
+                        if type(time_slots) is list:
+                            time_slots = pd.DataFrame.from_records(time_slots, columns=self._time_attrib)
+                            time_slots['ts'] = time_slots[self._time_attrib[0]].str.split(pat='ts', expand=True)[1].astype(int)
+                        mask_ts = (time_slots['ts'].ge(int(ts_ref1.split('ts')[1])) & time_slots['ts'].le(
+                            int(ts_ref2.split('ts')[1])))
+                        time_slots.loc[mask_ts, linguistic_type_ref] = descendant.text
                     else:
-                        values = [linguistic_type_ref, tier_id, descendant.text, annotation_id, ts_ref1, ts_ref2]
-                        s_values = pd.Series(data=values, index=self._col)
-                        s_ref1 = pd.Series(df_ts.loc[df_ts[self._time_attrib[1]] == ts_ref1, self._cps_ts].iloc[0])
-                        s_ref2 = pd.Series(df_ts.loc[df_ts[self._time_attrib[1]] == ts_ref2, self._cps_ts].iloc[0])
-                        s_ref1.rename(dict(zip(self._cps_ts, self._cps_ts1)), inplace=True)
-                        s_ref2.rename(dict(zip(self._cps_ts, self._cps_ts2)), inplace=True)
-                        df = df.append(pd.concat([s_values, s_ref1, s_ref2]), ignore_index=True)
-
-                        # renaming index of s in lowercase
-        h.index = [x.lower().strip() for x in list(h.index)]
-
-        # add header information and file name to df
-        df[h.index] = h
-        df['file'] = file
-        df['media'] = self.media_name(h)
-        df['selected_dir'] = self.selected_dir
-        return df
+                        values.append([linguistic_type_ref, tier_id, descendant.text, annotation_id, ts_ref1, ts_ref2])
+        for value in values:
+            value.extend(time_slots.loc[time_slots[self._time_attrib[0]] == value[4], self._cps_ts].iloc[0].tolist())
+            value.extend(time_slots.loc[time_slots[self._time_attrib[0]] == value[5], self._cps_ts].iloc[0].tolist())
+            value.extend([header[x] for x in self._header])
+            value.extend([self.selected_dir, file])
+            value.append(self.media_name(header))
+        return values
 
     def media_name(self, h):
-        media = h.loc['media_url']
+        media = h['MEDIA_URL']
         slash = media.rfind('/') + 1
         backslash = media.rfind('\\') + 1
         return media[max(slash, backslash):]
@@ -260,7 +241,7 @@ class ElanFinder:
         mask = self.mask_from_filters()
         for index, row in self.df[mask].iterrows():
             self.tree.insert("", 'end', text='', iid=None,
-                                 values=list(row.loc[self._col_tree].where(pd.notnull(row.loc[self._col_tree]), '')))
+                             values=list(row.loc[self._col_tree].where(pd.notnull(row.loc[self._col_tree]), '')))
         num_rows = len(self.df[mask])
         if num_rows > 1:
             self.label_found.config(text='%s results found' % num_rows)
