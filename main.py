@@ -217,6 +217,11 @@ class ElanFinder:
                         time_slots.loc[mask_ts, linguistic_type_ref] = descendant.text
                     else:
                         values.append([linguistic_type_ref, tier_id, descendant.text, annotation_id, ts_ref1, ts_ref2])
+
+        if type(time_slots) is list:
+            time_slots = pd.DataFrame.from_records(time_slots, columns=self._time_attrib)
+        if not all([x in time_slots.columns for x in self._cps]):
+            time_slots = time_slots.reindex(columns=self._time_attrib+self._cps, fill_value='missing')
         for value in values:
             value.extend(time_slots.loc[time_slots[self._time_attrib[0]] == value[4], self._cps_ts].iloc[0].tolist())
             value.extend(time_slots.loc[time_slots[self._time_attrib[0]] == value[5], self._cps_ts].iloc[0].tolist())
