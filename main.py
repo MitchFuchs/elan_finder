@@ -38,6 +38,8 @@ class ElanFinder:
         self._path = ['selected_dir', 'file', 'media']
         self.selected_dirs = []
 
+        self.df = pd.DataFrame()
+
         self.vid = None
         self.photo = None
         self.selected_dir = None
@@ -59,7 +61,7 @@ class ElanFinder:
         self.entry_Elan_folder.grid(row=2, column=1, padx=30)
         self.entry_Elan_folder.insert(0, "")
         self.bt_Elan_folder = Button(self.root, text="Browse", width=self.bt_width,
-                                     command=lambda: self.ask_elan_directory())
+                                     command=lambda: self.ask_elan_directory("<Button-1>"))
         self.bt_Elan_folder.grid(row=3, column=1)
 
         self.progress = ttk.Progressbar(self.root, orient=HORIZONTAL,
@@ -157,12 +159,14 @@ class ElanFinder:
         # loop
         self.root.mainloop()
 
-    def ask_elan_directory(self):
+    def ask_elan_directory(self, event):
         self.selected_dir = filedialog.askdirectory()
         if self.selected_dir not in self.selected_dirs:
             self.selected_dirs.insert(0, self.selected_dir)
-            self.load_files()
+            self.df = pd.concat([self.df, self.load_files()], ignore_index=True)
+            self.df['index'] = self.df.index
             self.entry_Elan_folder.insert(0, self.selected_dirs)
+            self.update_tree(event)
             self.combo_linguistic_type_ref['values'] = self.df['linguistic_type_ref'].unique().tolist()
             self.combo_ctx['values'] = self.df['Context_ts1'].dropna().unique().tolist()
             self.combo_phs['values'] = self.df['Phases_ts1'].dropna().unique().tolist()
@@ -179,10 +183,10 @@ class ElanFinder:
             done_file += 1
             self.bar("update", len(files), done_file, percentage)
         cols = self._col + self._cps_ts1 + self._cps_ts2 + self._header + self._path
-        self.df = pd.DataFrame(data=data, columns=cols)
-        self.df['index'] = self.df.index
-        self.df[['Time_milli_ts1', 'Time_milli_ts2']] = self.df.loc[:,['Time_value_ts1', 'Time_value_ts2']].applymap(self.conv_millis_to_hh_mm_ss)
+        df = pd.DataFrame(data=data, columns=cols)
+        df[['Time_milli_ts1', 'Time_milli_ts2']] = df.loc[:,['Time_value_ts1', 'Time_value_ts2']].applymap(self.conv_millis_to_hh_mm_ss)
         self.bar("finished", len(files), 0, 0)
+        return df
 
     def parse_eaf_file(self, file):
         header = {}
