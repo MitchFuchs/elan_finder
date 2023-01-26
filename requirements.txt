@@ -16,3 +16,4 @@ six==1.16.0
 virtualenv==20.17.0
 wheel==0.37.1
 XlsxWriter==3.0.3
+opencv-python
